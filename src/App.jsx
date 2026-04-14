@@ -351,11 +351,11 @@ function UploadPage({ toast }) {
   const pollRef = useRef(null);
   const inputRef = useRef(null);
 
-  const handleFile = (f) => {
-    if (f && f.type === 'application/pdf') {
+const handleFile = (f) => {
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']; const allowedExts = ['.pdf', '.doc', '.docx', '.txt']; const ext = f ? f.name.toLowerCase().slice(f.name.lastIndexOf('.')) : ''; if (f && (allowedTypes.includes(f.type) || allowedExts.includes(ext))) {
       setFile(f);
     } else {
-      toast('Only PDF files accepted', 'error');
+      toast('Only PDF, DOC, DOCX, and TXT files accepted', 'error');
     }
   };
 
@@ -442,7 +442,7 @@ function UploadPage({ toast }) {
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf"
+          accept=".pdf,.doc,.docx,.txt"
           onChange={(e) => handleFile(e.target.files[0])}
         />
         <div className="upload-icon">{file ? '✓' : '↑'}</div>
