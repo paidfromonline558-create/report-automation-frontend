@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ─── CONFIG ───
 // Change this to your VPS IP/domain after deploying backend
-const API_BASE = import.meta.env.VITE_API_URL || 'http://134.255.218.197:3001';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://api.kanshalive.com';
 
 // ─── API helpers ───
 function getAuthHeader() {
