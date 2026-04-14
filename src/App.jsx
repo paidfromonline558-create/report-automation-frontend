@@ -601,12 +601,29 @@ function AdminSettings({ toast }) {
 // ─── Admin Jobs ───
 function AdminJobs({ toast }) {
   const [jobs, setJobs] = useState([]);
+  const [savedJobs, setSavedJobs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('saved_jobs') || '[]'); } catch { return []; }
+  });
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
       const data = await api('/api/admin/jobs');
       setJobs(data);
+      // Auto-save completed jobs
+      const completed = data.filter(j => j.status === 'completed' && j.downloadUrl);
+      if (completed.length > 0) {
+        setSavedJobs(prev => {
+          const existing = new Set(prev.map(j => j.id));
+          const newJobs = completed.filter(j => !existing.has(j.id));
+          if (newJobs.length > 0) {
+            const updated = [...newJobs.map(j => ({ id: j.id, fileName: j.fileName, downloadUrl: j.downloadUrl, completedAt: j.completedAt })), ...prev];
+            localStorage.setItem('saved_jobs', JSON.stringify(updated));
+            return updated;
+          }
+          return prev;
+        });
+      }
     } catch (e) {
       toast('Failed to load jobs', 'error');
     }
@@ -625,6 +642,12 @@ function AdminJobs({ toast }) {
     }
   };
 
+  const clearSaved = () => {
+    localStorage.removeItem('saved_jobs');
+    setSavedJobs([]);
+    toast('Cleared all saved reports', 'success');
+  };
+
   const fmtDate = (d) => d ? new Date(d).toLocaleString() : '—';
 
   return (
@@ -632,65 +655,76 @@ function AdminJobs({ toast }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h2 style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-.03em' }}>Jobs</h2>
-          <p style={{ color: 'var(--text2)', marginTop: 4 }}>{jobs.length} total jobs</p>
+          <p style={{ color: 'var(--text2)', marginTop: 4 }}>{jobs.length} active · {savedJobs.length} saved reports</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost btn-sm" onClick={load}>Refresh</button>
-          <button className="btn btn-ghost btn-sm" onClick={clearCompleted}>Clear completed</button>
+          <button className="btn btn-ghost btn-sm" onClick={clearCompleted}>Clear active</button>
         </div>
       </div>
 
       {loading ? (
         <p style={{ color: 'var(--text2)' }}>Loading...</p>
-      ) : jobs.length === 0 ? (
+      ) : jobs.length === 0 && savedJobs.length === 0 ? (
         <div className="settings-section" style={{ textAlign: 'center', padding: 60, color: 'var(--text3)' }}>
           No jobs yet. Upload a file to start.
         </div>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Created</th>
-                <th>Completed</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {jobs.map((j) => {
-                const cls =
-                  j.status === 'completed' ? 'completed' :
-                  j.status === 'failed' ? 'failed' :
-                  j.status === 'queued' ? 'queued' : 'processing';
-                return (
-                  <tr key={j.id}>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>{j.fileName}</td>
-                    <td><span className={`status-badge ${cls}`}>{j.status}</span></td>
-                    <td>{j.progress}%</td>
-                    <td style={{ fontSize: '.82rem' }}>{fmtDate(j.createdAt)}</td>
-                    <td style={{ fontSize: '.82rem' }}>{fmtDate(j.completedAt)}</td>
-                    <td>
-                      {j.status === 'completed' && j.downloadUrl && (
-                        <a
-                          href={`${API_BASE}${j.downloadUrl}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="btn btn-green btn-sm"
-                          style={{ textDecoration: 'none', fontSize: '.78rem', padding: '4px 12px' }}
-                        >
-                          ↓ Download
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {jobs.length > 0 && (
+            <div className="table-wrap" style={{ marginBottom: 32 }}>
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: 12 }}>Active jobs</h3>
+              <table>
+                <thead>
+                  <tr><th>File</th><th>Status</th><th>Progress</th><th>Created</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {jobs.map((j) => {
+                    const cls = j.status === 'completed' ? 'completed' : j.status === 'failed' ? 'failed' : j.status === 'queued' ? 'queued' : 'processing';
+                    return (
+                      <tr key={j.id}>
+                        <td style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>{j.fileName}</td>
+                        <td><span className={`status-badge ${cls}`}>{j.status}</span></td>
+                        <td>{j.progress}%</td>
+                        <td style={{ fontSize: '.82rem' }}>{fmtDate(j.createdAt)}</td>
+                        <td>
+                          {j.status === 'completed' && j.downloadUrl && (
+                            <a href={`${API_BASE}${j.downloadUrl}`} target="_blank" rel="noreferrer" className="btn btn-green btn-sm" style={{ textDecoration: 'none', fontSize: '.78rem', padding: '4px 12px' }}>Download</a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {savedJobs.length > 0 && (
+            <div className="table-wrap">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 600 }}>Saved reports</h3>
+                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={clearSaved}>Clear all</button>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>File</th><th>Completed</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {savedJobs.map((j) => (
+                    <tr key={j.id}>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>{j.fileName}</td>
+                      <td style={{ fontSize: '.82rem' }}>{fmtDate(j.completedAt)}</td>
+                      <td>
+                        <a href={`${API_BASE}${j.downloadUrl}`} target="_blank" rel="noreferrer" className="btn btn-green btn-sm" style={{ textDecoration: 'none', fontSize: '.78rem', padding: '4px 12px' }}>Download</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
