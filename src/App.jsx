@@ -730,6 +730,290 @@ function AdminJobs({ toast }) {
   );
 }
 
+// ─── PDF Compressor ───
+function PdfCompressor({ toast }) {
+  const [files, setFiles] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  const [results, setResults] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(-1);
+  const inputRef2 = useRef(null);
+
+  const addFiles = (fileList) => {
+    const MAX = 25 * 1024 * 1024;
+    const newFiles = Array.from(fileList).filter(f => {
+      if (f.type !== 'application/pdf') { toast('Only PDF files accepted', 'error'); return false; }
+      if (f.size > MAX) { toast(f.name + ' is over 25MB', 'error'); return false; }
+      return !files.some(ef => ef.name === f.name && ef.size === f.size);
+    });
+    setFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx));
+  const clearAll = () => { setFiles([]); setResults([]); };
+  const fmt = (b) => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
+
+  const triggerDownload = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const compressAll = async () => {
+    if (files.length === 0) return;
+    setProcessing(true);
+    setResults([]);
+    const newResults = [];
+
+    for (let i = 0; i < files.length; i++) {
+      setCurrentIdx(i);
+      const file = files[i];
+      try {
+        const base64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(',')[1]);
+          r.onerror = () => rej(new Error('Read failed'));
+          r.readAsDataURL(file);
+        });
+
+        const response = await fetch(API_BASE + '/api/compress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfBase64: base64, fileName: file.name }),
+        });
+
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error);
+
+        const raw = atob(data.pdfBase64);
+        const bytes = new Uint8Array(raw.length);
+        for (let j = 0; j < raw.length; j++) bytes[j] = raw.charCodeAt(j);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+
+        triggerDownload(blob, file.name);
+        newResults.push({ name: file.name, origSize: data.originalSize, outSize: data.outputSize, blob, status: 'done' });
+      } catch (err) {
+        newResults.push({ name: file.name, origSize: file.size, outSize: 0, blob: null, status: 'error', error: err.message });
+      }
+      setResults([...newResults]);
+    }
+    setCurrentIdx(-1);
+    setProcessing(false);
+    toast('Compression complete!', 'success');
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.6rem', fontWeight: 700, marginBottom: 8, letterSpacing: '-.03em' }}>PDF Compressor</h2>
+      <p style={{ color: 'var(--text2)', marginBottom: 24 }}>
+        600 DPI · 100% Quality · Color: No Change — Powered by Ghostscript
+      </p>
+
+      <div
+        className={`upload-zone ${files.length > 0 ? 'has-file' : ''}`}
+        onClick={() => inputRef2.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
+      >
+        <input ref={inputRef2} type="file" accept=".pdf" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        <div className="upload-icon">{files.length > 0 ? '✓' : '↑'}</div>
+        <h3>{files.length > 0 ? files.length + ' file(s) selected' : 'Drop PDFs here'}</h3>
+        <p>{files.length > 0 ? 'Click to add more' : 'or click to browse · Max 25MB each'}</p>
+      </div>
+
+      {files.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          {files.map((f, i) => (
+            <div key={i} className="file-badge" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span>📄 {f.name} ({fmt(f.size)})</span>
+              {!processing && <span className="x" onClick={(e) => { e.stopPropagation(); removeFile(i); }}>✕</span>}
+            </div>
+          ))}
+          <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+            <button className="btn btn-primary" onClick={compressAll} disabled={processing}>
+              {processing ? 'Compressing ' + (currentIdx + 1) + '/' + files.length + '...' : 'Compress & Download All'}
+            </button>
+            {!processing && <button className="btn btn-ghost" onClick={clearAll}>Clear all</button>}
+          </div>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: 12 }}>Results</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>File</th><th>Original</th><th>Compressed</th><th>Change</th><th>Action</th></tr></thead>
+              <tbody>
+                {results.map((r, i) => {
+                  const delta = r.origSize > 0 ? (((r.outSize - r.origSize) / r.origSize) * 100).toFixed(1) : '0';
+                  return (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>{r.name}</td>
+                      <td>{fmt(r.origSize)}</td>
+                      <td>{r.status === 'done' ? fmt(r.outSize) : '—'}</td>
+                      <td style={{ color: parseFloat(delta) <= 0 ? 'var(--green)' : 'var(--orange)' }}>
+                        {r.status === 'done' ? (parseFloat(delta) <= 0 ? '' : '+') + delta + '%' : '—'}
+                      </td>
+                      <td>
+                        {r.status === 'done' && r.blob ? (
+                          <button className="btn btn-green btn-sm" style={{ fontSize: '.78rem', padding: '4px 12px' }} onClick={() => triggerDownload(r.blob, r.name)}>Download</button>
+                        ) : r.status === 'error' ? (
+                          <span style={{ color: 'var(--red)', fontSize: '.82rem' }}>{r.error}</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Logo Replacer ───
+function LogoReplacer({ toast }) {
+  const [files, setFiles] = useState([]);
+  const [processing, setProcessing] = useState(false);
+  const [results, setResults] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(-1);
+  const inputRef3 = useRef(null);
+
+  const addFiles = (fileList) => {
+    const newFiles = Array.from(fileList).filter(f => {
+      if (f.type !== 'application/pdf') { toast('Only PDF files accepted', 'error'); return false; }
+      return !files.some(ef => ef.name === f.name && ef.size === f.size);
+    });
+    setFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const removeFile = (idx) => setFiles(prev => prev.filter((_, i) => i !== idx));
+  const clearAll = () => { setFiles([]); setResults([]); };
+  const fmt = (b) => b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
+
+  const triggerDownload = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const processAll = async () => {
+    if (files.length === 0) return;
+    setProcessing(true);
+    setResults([]);
+    const newResults = [];
+
+    for (let i = 0; i < files.length; i++) {
+      setCurrentIdx(i);
+      const file = files[i];
+      try {
+        const formData = new FormData();
+        formData.append('pdf', file);
+
+        const response = await fetch(API_BASE + '/api/replace-logos', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ error: response.statusText }));
+          throw new Error(err.error || 'Server error ' + response.status);
+        }
+
+        const blob = await response.blob();
+        triggerDownload(blob, file.name);
+        newResults.push({ name: file.name, size: blob.size, blob, status: 'done' });
+      } catch (err) {
+        newResults.push({ name: file.name, size: 0, blob: null, status: 'error', error: err.message });
+      }
+      setResults([...newResults]);
+    }
+    setCurrentIdx(-1);
+    setProcessing(false);
+    const success = newResults.filter(r => r.status === 'done').length;
+    const failed = newResults.filter(r => r.status === 'error').length;
+    toast(success + ' processed' + (failed > 0 ? ', ' + failed + ' failed' : ''), success > 0 ? 'success' : 'error');
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.6rem', fontWeight: 700, marginBottom: 8, letterSpacing: '-.03em' }}>Logo Replacer</h2>
+      <p style={{ color: 'var(--text2)', marginBottom: 24 }}>
+        Replaces iThenticate logos in Turnitin reports with Turnitin branding. Upload the report PDF and download the fixed version.
+      </p>
+
+      <div
+        className={`upload-zone ${files.length > 0 ? 'has-file' : ''}`}
+        onClick={() => inputRef3.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
+      >
+        <input ref={inputRef3} type="file" accept=".pdf" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        <div className="upload-icon">{files.length > 0 ? '✓' : '↑'}</div>
+        <h3>{files.length > 0 ? files.length + ' file(s) selected' : 'Drop Turnitin report PDFs here'}</h3>
+        <p>{files.length > 0 ? 'Click to add more' : 'or click to browse'}</p>
+      </div>
+
+      {files.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          {files.map((f, i) => (
+            <div key={i} className="file-badge" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span>📄 {f.name} ({fmt(f.size)})</span>
+              {!processing && <span className="x" onClick={(e) => { e.stopPropagation(); removeFile(i); }}>✕</span>}
+            </div>
+          ))}
+          <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+            <button className="btn btn-primary" onClick={processAll} disabled={processing}>
+              {processing ? 'Processing ' + (currentIdx + 1) + '/' + files.length + '...' : 'Replace Logos & Download'}
+            </button>
+            {!processing && <button className="btn btn-ghost" onClick={clearAll}>Clear all</button>}
+          </div>
+        </div>
+      )}
+
+      {results.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: 12 }}>Results</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>File</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                {results.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>{r.name}</td>
+                    <td>
+                      {r.status === 'done' ? (
+                        <span className="status-badge completed">Done</span>
+                      ) : (
+                        <span className="status-badge failed">Failed</span>
+                      )}
+                    </td>
+                    <td>
+                      {r.status === 'done' && r.blob ? (
+                        <button className="btn btn-green btn-sm" style={{ fontSize: '.78rem', padding: '4px 12px' }} onClick={() => triggerDownload(r.blob, r.name)}>Download</button>
+                      ) : (
+                        <span style={{ color: 'var(--red)', fontSize: '.82rem' }}>{r.error}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  APP ROOT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -783,6 +1067,12 @@ export default function App() {
               <button className={`nav-link ${page === 'jobs' ? 'active' : ''}`} onClick={() => setPage('jobs')}>
                 Jobs
               </button>
+              <button className={`nav-link ${page === 'compress' ? 'active' : ''}`} onClick={() => setPage('compress')}>
+                Compressor
+              </button>
+              <button className={`nav-link ${page === 'logos' ? 'active' : ''}`} onClick={() => setPage('logos')}>
+                Logo Replacer
+              </button>
               <button className={`nav-link ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>
                 Settings
               </button>
@@ -803,6 +1093,10 @@ export default function App() {
             <UploadPage toast={showToast} />
           ) : page === 'jobs' ? (
             <AdminJobs toast={showToast} />
+          ) : page === 'compress' ? (
+            <PdfCompressor toast={showToast} />
+          ) : page === 'logos' ? (
+            <LogoReplacer toast={showToast} />
           ) : (
             <AdminSettings toast={showToast} />
           )}
