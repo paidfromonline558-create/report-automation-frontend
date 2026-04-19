@@ -442,6 +442,7 @@ const handleFile = (f) => {
         <input
           ref={inputRef}
           type="file"
+          onClick={(e) => e.stopPropagation()}
           accept=".pdf,.doc,.docx,.txt"
           onChange={(e) => handleFile(e.target.files[0])}
         />
@@ -817,7 +818,7 @@ function PdfCompressor({ toast }) {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
       >
-        <input ref={inputRef2} type="file" accept=".pdf" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        <input ref={inputRef2} type="file" accept=".pdf" multiple onClick={(e) => e.stopPropagation()} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
         <div className="upload-icon">{files.length > 0 ? '✓' : '↑'}</div>
         <h3>{files.length > 0 ? files.length + ' file(s) selected' : 'Drop PDFs here'}</h3>
         <p>{files.length > 0 ? 'Click to add more' : 'or click to browse · Max 25MB each'}</p>
@@ -956,7 +957,7 @@ function LogoReplacer({ toast }) {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}
       >
-        <input ref={inputRef3} type="file" accept=".pdf" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+        <input ref={inputRef3} type="file" accept=".pdf" multiple onClick={(e) => e.stopPropagation()} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
         <div className="upload-icon">{files.length > 0 ? '✓' : '↑'}</div>
         <h3>{files.length > 0 ? files.length + ' file(s) selected' : 'Drop Turnitin report PDFs here'}</h3>
         <p>{files.length > 0 ? 'Click to add more' : 'or click to browse'}</p>
