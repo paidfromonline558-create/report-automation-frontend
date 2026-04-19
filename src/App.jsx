@@ -437,7 +437,7 @@ const handleFile = (f) => {
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => { if (!file) inputRef.current?.click(); }}
       >
         <input
           ref={inputRef}
